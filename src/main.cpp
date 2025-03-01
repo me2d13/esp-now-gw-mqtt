@@ -7,12 +7,10 @@
 #define __LED_BUILTIN 2
 
 #define PIN_ESPNOW_SERIAL_RX 14
-#define PIN_ESPNOW_SERIAL_TX 13
+#define PIN_ESPNOW_SERIAL_TX 27
 
 #define SERIAL_BUFFER_SIZE 500
 #define SERIAL_BAUDRATE 115200
-
-// to test public to topic /esp-now/gw/send message {"to":"ECFABC2FE867","data":{"index":2, "push":500}}
 
 void blinkOnHandler();
 void blinkOffHandler();
@@ -60,7 +58,7 @@ void blinkOffHandler() {
 }
 
 void onMqttMessage(char* topic, byte* payload, unsigned int length) {
-  logger.print("MAIN MQTT message arrived [");
+  logger.print("MQTT message arrived [");
   logger.print(topic);
   logger.print("]: '");
   char message[length+1];
@@ -87,7 +85,7 @@ void handleSerialEspNow() {
     char incomingByte = espNowSerial.read();
     if (incomingByte == '\n' || espSerialMessageBufferIndex >= SERIAL_BUFFER_SIZE) {
       espSerialMessageBuffer[espSerialMessageBufferIndex] = '\0';
-      logger.print("Message from ESP-NOW: ");
+      logger.print("Message from transmitter: ");
       logger.println(espSerialMessageBuffer);
       espSerialMessageBufferIndex = 0;
       // if message starts with "DATA:" publish to mqtt

@@ -9,3 +9,4 @@ void manageConnections();
 void setMqttHandler(mqttHandlerType handler);
 void mqttLog(char *message);
 void mqttSend(char *message);
+void syncNtp();

@@ -3,6 +3,8 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#define WHO_AM_I "ESP32-ESPNOW-GW-MQTT"
+
 // this device listens at topic below
 #define MQTT_SUB_TOPIC "/esp-now/gw/send"
 // this device sends messages to topic below
@@ -20,6 +22,13 @@
 #define BLICK_S 30
 
 // version which appears on the web page
-#define SW_VERSION "0.1" 
+#define SW_VERSION "0.2" 
+
+/* CHANGELOG 
+
+0.1 - initial version
+0.2 - added NTP support & improved logging
+
+*/
 
 #endif

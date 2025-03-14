@@ -4,6 +4,12 @@
 #include <PubSubClient.h>
 #include "wifi-ota-mqtt.h"
 #include "Logger.h"
+#include <time.h>
+
+// NTP server settings
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 3600; // GMT offset in seconds (e.g., +1 for UTC+1)
+const int daylightOffset_sec = 0; //3600; // Daylight savings offset in seconds (adjust if needed)
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
@@ -76,13 +82,14 @@ void setupMqtt() {
 void attemptMqtt() {
     if (!mqttClient.connected()) {
         logger.println("Attempting connection to MQTT...");
-        if (mqttClient.connect("ESP32-ESPNOW-GW-MQTT")) {
+        if (mqttClient.connect(WHO_AM_I)) {
+            char message[100];
             logger.println("connected");
             mqttClient.subscribe(MQTT_SUB_TOPIC);
-            mqttClient.publish(MQTT_LOG_TOPIC, "ESP32-ESPNOW-GW-MQTT connected");
+            sprintf(message, "%s connected on IP: %d.%d.%d.%d", WHO_AM_I, WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3]);
+            mqttClient.publish(MQTT_LOG_TOPIC, message);
             logger.println("MQTT ready");
             // publish IP address once to MQTT_GLOBAL_LOG_TOPIC in meaninful format
-            char message[100];
             sprintf(message, "ESP-NOW mqtt gateway IP: %d.%d.%d.%d", WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3]);
             mqttClient.publish(MQTT_GLOBAL_LOG_TOPIC, message);
         } else {
@@ -127,4 +134,19 @@ void mqttLog(char *message) {
 
 void mqttSend(char *message) {
     mqttClient.publish(MQTT_PUB_TOPIC, message);
+}
+
+void syncNtp() {
+    // Initialize time via NTP
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    logger.log("Time synchronized with NTP server.");
+    // Log initial time
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        char timeStr[20];
+        strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
+        logger.log("Current time: " + std::string(timeStr));
+    } else {
+        logger.log("Failed to obtain time.");
+    }
 }

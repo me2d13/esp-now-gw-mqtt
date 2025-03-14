@@ -18,9 +18,10 @@ void setupWebServer() {
     esp_chip_info(&chip_info);
     // create response
     AsyncResponseStream *response = request->beginResponseStream("text/html");
-    response->printf("<!DOCTYPE html><html><head><title>Webpage at %s</title>", request->url().c_str());
+    response->printf("<!DOCTYPE html><html><head><title>%s</title>", WHO_AM_I);
     response->print("</head><body><h2>Hello ");
     response->print(request->client()->remoteIP());
+    response->printf(", this is %s", WHO_AM_I);
     response->print("</h2>");
     response->print("<h3>General</h3>");
     response->print("<ul>");

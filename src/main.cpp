@@ -33,6 +33,7 @@ void setup() {
   Serial.begin(115200);
   logger.println("Booting");
   connectWifi();
+  syncNtp();
   setupOTA();
   setupMqtt();
   setMqttHandler(onMqttMessage);

@@ -2,7 +2,7 @@
 #include <Arduino.h> // Needed for millis()
 #include <time.h>    // Needed for NTP time
 
-#define USE_NTP false
+#define USE_NTP true
 
 Logger logger;
 
@@ -60,19 +60,20 @@ size_t Logger::size() const
 // Helper function to format the timestamp from the RTC (NTP)
 std::string Logger::getTimestamp() const
 {
-    if (!USE_NTP)
+    bool useMilis = true;
+    struct tm timeinfo;
+    if (USE_NTP) {
+        if (getLocalTime(&timeinfo)) {
+            useMilis = false;
+        }
+    }
+    if (useMilis)
     {
         // return milis formatted to hours:minutes:seconds.miliseconds
         char timestamp[20];
         sprintf(timestamp, "%02d:%02d:%02d.%03d", millis() / 3600000, millis() / 60000 % 60, millis() / 1000 % 60, millis() % 1000);
         return std::string(timestamp);
     }
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo))
-    {
-        return "Timestamp not available";
-    }
-
     char timestamp[20];
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &timeinfo);
     return std::string(timestamp);

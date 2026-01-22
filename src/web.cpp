@@ -60,10 +60,15 @@ void setupWebServer() {
     response->print("<h3>Logs</h3>");
     response->print("<ul>");
     // iterate over logs
-    std::deque<std::string> logs = logger.getLogs();
+    std::deque<LogEntry> logs = logger.getLogs();
     for (const auto& log : logs) {
         response->print("<li>");
-        response->print(log.c_str());
+        response->printf("#%u - %s - %s", log.id, log.getHumanTimestamp().c_str(), log.message.c_str());
+        if (log.systemTimeAvailable) {
+            response->print(" <em>(NTP synchronized)</em>");
+        } else {
+            response->print(" <em>(boot-relative time)</em>");
+        }
         response->print("</li>\n");
     }
     response->print("</ul>");

@@ -5,11 +5,12 @@
 #include "wifi-ota-mqtt.h"
 #include "Logger.h"
 #include <time.h>
+#include <LittleFS.h>
 
 // NTP server settings
 const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = 3600; // GMT offset in seconds (e.g., +1 for UTC+1)
-const int daylightOffset_sec = 0; //3600; // Daylight savings offset in seconds (adjust if needed)
+const long gmtOffset_sec = 0; // Force UTC (GMT)
+const int daylightOffset_sec = 0; 
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
@@ -95,6 +96,7 @@ void setupOTA() {
             type = "sketch";
         } else { // U_SPIFFS
             type = "filesystem";
+            LittleFS.end();
         }
         // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
         logger.print("Start updating ");

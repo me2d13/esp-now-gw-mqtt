@@ -4,6 +4,7 @@
 #include "Logger.h"
 #include "web.h"
 #include "config.h"
+#include <LittleFS.h>
 
 /*
  * OpenTelemetry Logging Example:
@@ -58,6 +59,9 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, true);
   Serial.begin(115200);
+  if(!LittleFS.begin(true)){
+    Serial.println("LittleFS Mount Failed");
+  }
   logger.println("Booting");
 
 #ifdef USE_OPENTELEMETRY_LOGGING
@@ -100,18 +104,30 @@ void heartbeatHandler() {
   logger.println(WHO_AM_I);
 }
 
+void sendMessageToSerial(const char* message, const char* source) {
+  // Strip newlines for serial transmission to avoid splitting the message
+  String cleanMsg = String(message);
+  cleanMsg.replace("\n", "");
+  cleanMsg.replace("\r", "");
+  
+  logger.print("Message arrived via ");
+  logger.print(source);
+  logger.print(": '");
+  logger.print(message);
+  logger.println("'. Passing to serial to TRANS");
+  
+  espNowSerial.println(cleanMsg.c_str());
+}
+
 void onMqttMessage(char* topic, byte* payload, unsigned int length) {
-  logger.print("MQTT message arrived [");
-  logger.print(topic);
-  logger.print("]: '");
   char message[length+1];
   for (int i = 0; i < length; i++) {
     message[i] = (char)payload[i];
   }
   message[length] = '\0';
-  logger.print(message);
-  logger.println("'. Passing to serial to TRANS");
-  espNowSerial.println(message);
+  
+  String source = "MQTT [" + String(topic) + "]";
+  sendMessageToSerial(message, source.c_str());
 }
 
 void setupSerialEspNow() {

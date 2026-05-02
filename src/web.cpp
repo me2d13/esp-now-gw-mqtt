@@ -1,8 +1,11 @@
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
+#include <LittleFS.h>
+#include <ArduinoJson.h>
 #include "config.h"
 #include "web.h"
 #include "Logger.h"
+#include "apiAbout.h"
 
 
 AsyncWebServer server(80);
@@ -10,72 +13,78 @@ AsyncWebServer server(80);
 
 void setupWebServer() {
 
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
-    // get free mem
-    uint32_t freeMem = esp_get_free_internal_heap_size();
-    // get chip info using esp_chip_info
-    esp_chip_info_t chip_info;
-    esp_chip_info(&chip_info);
-    // create response
-    AsyncResponseStream *response = request->beginResponseStream("text/html");
-    response->printf("<!DOCTYPE html><html><head><title>%s</title>", WHO_AM_I);
-    response->print("</head><body><h2>Hello ");
-    response->print(request->client()->remoteIP());
-    response->printf(", this is %s", WHO_AM_I);
-    response->print("</h2>");
-    response->print("<h3>General</h3>");
-    response->print("<ul>");
-    response->printf("<li>Version: HTTP/1.%u</li>", request->version());
-    response->printf("<li>Method: %s</li>", request->methodToString());
-    response->printf("<li>URL: %s</li>", request->url().c_str());
-    response->printf("<li>Host: %s</li>", request->host().c_str());
-    response->printf("<li>ContentType: %s</li>", request->contentType().c_str());
-    response->printf("<li>ContentLength: %u</li>", request->contentLength());
-    response->printf("<li>Multipart: %s</li>", request->multipart()?"true":"false");
-    response->print("</ul>");
-    response->print("<h3>Device</h3>");
-    response->print("<ul>");
-    response->print("<li>Version: " SW_VERSION "</li>");
-    response->printf("<li>Mac address: %s</li>", WiFi.macAddress().c_str());
-    response->printf("<li>IP address: %s</li>", WiFi.localIP().toString().c_str());
-    response->printf("<li>Free heap: %u</li>", freeMem);
-    response->printf("<li>Chip <a href=\"https://github.com/espressif/esp-idf/blob/v5.4/components/esp_hw_support/include/esp_chip_info.h\">model</a>: %d</li>", chip_info.model);
-    response->printf("<li>Chip revision: %u</li>", chip_info.revision);
-    response->printf("<li>Chip cores: %u</li>", chip_info.cores);
-    response->printf("<li>Chip features: %s</li>", (chip_info.features & CHIP_FEATURE_WIFI_BGN ? "802.11bgn" : "none"));
-    response->printf("<li>Chip features: %s</li>", (chip_info.features & CHIP_FEATURE_BLE ? "BLE" : "none"));
-    response->printf("<li>Chip features: %s</li>", (chip_info.features & CHIP_FEATURE_BT ? "BT" : "none"));
-    response->printf("<li>Chip features: %s</li>", (chip_info.features & CHIP_FEATURE_EMB_FLASH ? "Embedded Flash" : "No Embedded Flash"));
-    response->printf("<li>Chip features: %s</li>", (chip_info.features & CHIP_FEATURE_EMB_PSRAM ? "Embedded PSRAM" : "No Embedded PSRAM"));
-    //
+  // API: Get logs
+  server.on("/api/log", HTTP_GET, [](AsyncWebServerRequest* request) {
+    JsonDocument doc;
+    JsonArray logArray = doc.to<JsonArray>();
     
-    response->print("</ul>");
-    response->print("<h3>MQTT</h3>");
-    response->print("<ul>");
-    response->printf("<li>Control topic (this device subsribed to): %s</li>", MQTT_SUB_TOPIC);
-    response->printf("<li>State topic (this device send messages to): %s</li>", MQTT_PUB_TOPIC);
-    response->printf("<li>Log topic (this device sends log messages to): %s</li>", MQTT_LOG_TOPIC);
-    response->printf("<li>Global log topic (this device sends IP address on boot): %s</li>", MQTT_GLOBAL_LOG_TOPIC);
-    response->print("</ul>");
-    response->print("<h3>Logs</h3>");
-    response->print("<ul>");
-    // iterate over logs
     std::deque<LogEntry> logs = logger.getLogs();
     for (const auto& log : logs) {
-        response->print("<li>");
-        response->printf("#%u - %s - %s", log.id, log.getHumanTimestamp().c_str(), log.message.c_str());
-        if (log.systemTimeAvailable) {
-            response->print(" <em>(NTP synchronized)</em>");
-        } else {
-            response->print(" <em>(boot-relative time)</em>");
-        }
-        response->print("</li>\n");
+        JsonObject obj = logArray.add<JsonObject>();
+        obj["id"] = log.id;
+        obj["timestamp"] = log.getHumanTimestamp();
+        obj["isoTimestamp"] = log.getIsoTimestamp();
+        obj["message"] = log.message;
+        obj["job"] = log.job;
+        obj["isNtp"] = log.systemTimeAvailable;
     }
-    response->print("</ul>");
-    response->print("</body></html>");
-    //send the response last
-    request->send(response);
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  // API: Get device info
+  server.on("/api/info", HTTP_GET, [](AsyncWebServerRequest* request) {
+    JsonDocument doc;
+    doc["name"] = WHO_AM_I;
+    doc["version"] = SW_VERSION;
+    doc["ip"] = WiFi.localIP().toString();
+    doc["uptime"] = millis() / 1000;
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  // API: Send message to Serial
+  server.on("/api/send", HTTP_POST, [](AsyncWebServerRequest * request) {
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+  }, NULL, [](AsyncWebServerRequest * request, uint8_t * data, size_t len, size_t index, size_t total) {
+      if (index == 0) {
+          // Store message in a temp buffer if needed, but for small messages we can just use data
+          char* msg = (char*)malloc(len + 1);
+          if (msg) {
+              memcpy(msg, data, len);
+              msg[len] = '\0';
+              sendMessageToSerial(msg, "Web API");
+              free(msg);
+          }
+      }
+  });
+
+  // API: About (placeholder)
+  server.on("/api/about", HTTP_GET, [](AsyncWebServerRequest* request) {
+    JsonDocument doc;
+    JsonArray aboutArray = doc.to<JsonArray>();
+    getAboutData(aboutArray);
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  // Serve static files from LittleFS
+  server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+
+  // Fallback for 404
+  server.onNotFound([](AsyncWebServerRequest *request) {
+    if (request->method() == HTTP_OPTIONS) {
+      request->send(200);
+    } else {
+      request->send(404, "text/plain", "Not found");
+    }
   });
 
   server.begin();
-}
+}

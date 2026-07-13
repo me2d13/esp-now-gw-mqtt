@@ -45,6 +45,48 @@ pio run -t uploadfs -e ota
 
 ---
 
+## Known issues / Gotchas
+
+### Flash partition size — silent boot loop
+
+**Symptom:** Device resets in a loop showing only ROM bootloader output
+(`rst:0x3 (SW_RESET)`, `load:0x...`, `ets Jul 29 2019 12:21:46`) with no
+application output at all — not even the first `Serial.begin()` print.
+
+**Root cause:** The firmware binary was already **~1.249 MB** with the
+default partition scheme, which only gives **1.25 MB** for the app partition
+(~1,312 bytes of headroom). Adding ArduinoJson template instantiations
+(`deserializeJson` / `serializeJson`) to a second translation unit creates
+new template specialisations that push the binary over that limit. The
+firmware still uploads successfully because `esptool` does not enforce the
+partition boundary, but the device then crashes silently before
+`setup()` runs.
+
+**Fix applied:** `platformio.ini` now uses `board_build.partitions = min_spiffs.csv`,
+which increases the app partition to **1.875 MB** (at the cost of the LittleFS
+partition shrinking from ~1.5 MB to ~192 KB — still sufficient for the web UI
+files in `data/`).
+
+> [!WARNING]
+> If you ever hit a silent boot loop after adding new libraries or heavy
+> template code, check the firmware size first:
+> ```
+> pio run -v -e upesy_wroom 2>&1 | findstr /i "bytes"
+> ```
+> Look for the `Compressed XXXXXX bytes` line in the esptool output. If it
+> approaches the app partition size, you may need to switch to a larger
+> partition scheme or reduce dependencies.
+
+> [!IMPORTANT]
+> After changing `board_build.partitions`, you must reflash **both**
+> firmware and filesystem so the device uses the new partition offsets:
+> ```bash
+> pio run -t upload -e upesy_wroom
+> pio run -t uploadfs -e upesy_wroom
+> ```
+
+---
+
 ## Example mqtt messages
 
 Following is shell script with typical messages used for testing these components

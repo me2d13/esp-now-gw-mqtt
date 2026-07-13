@@ -53,6 +53,10 @@ int espSerialMessageBufferIndex = 0;
 
 // Timestamp of the last heartbeat received from the transmitter (0 = never received)
 unsigned long lastTransmitterHeartbeatMs = 0;
+// JsonDocument allocated in setup() after heap is ready.
+// Root cause of earlier crash: default 1.25 MB app partition was too small;
+// fixed by switching to min_spiffs.csv (1.875 MB app). 
+static JsonDocument* espNowDoc = nullptr;
 
 
 void onMqttMessage(char* topic, byte* payload, unsigned int length);
@@ -81,6 +85,7 @@ void setup() {
   setMqttHandler(onMqttMessage);
   setupWebServer();
   setupSerialEspNow();
+  espNowDoc = new JsonDocument();
   timerBlinkOn.start();
   timerHeartbeat.start();
 }
@@ -163,52 +168,45 @@ void handleSerialEspNow() {
         len--;
       }
 
-      if (len > 0) {
-        // Parse incoming line as JSON
-        JsonDocument doc;
-        DeserializationError err = deserializeJson(doc, espSerialMessageBuffer);
+      if (len > 0 && espNowDoc != nullptr) {
+        espNowDoc->clear();
+        DeserializationError err = deserializeJson(*espNowDoc, espSerialMessageBuffer);
         if (err) {
           logger.print("TRANS serial parse error: ");
           logger.println(err.c_str());
           logger.println(espSerialMessageBuffer);
         } else {
-          const char* type = doc["type"] | "";
+          const char* type = (*espNowDoc)["type"] | "";
 
           if (strcmp(type, "data") == 0) {
-            // Forward only the inner message payload to MQTT (backward-compatible)
+            // Forward only the inner message payload to MQTT
             String payload;
-            serializeJson(doc["message"], payload);
+            serializeJson((*espNowDoc)["message"], payload);
             mqttSend(const_cast<char*>(payload.c_str()));
             logger.print("TRANS data from ");
-            logger.print(doc["mac"] | "?");
+            logger.print((*espNowDoc)["mac"] | "?");
             logger.print(" passed to MQTT: ");
             logger.println(payload.c_str());
 
           } else if (strcmp(type, "log") == 0) {
-            // Integrate transmitter logs into the gateway logger
-            const char* from    = doc["from"]    | "ESP32-ESPNOW-GW-TRANS";
-            const char* message = doc["message"] | "";
+            const char* from    = (*espNowDoc)["from"]    | "ESP32-ESPNOW-GW-TRANS";
+            const char* message = (*espNowDoc)["message"] | "";
             logger.log(message, from);
 
           } else if (strcmp(type, "heartbeat") == 0) {
-            // Update the alive-timestamp; do not log or forward
             lastTransmitterHeartbeatMs = millis();
 
           } else if (strcmp(type, "response") == 0) {
-            // Log command responses locally only
-            const char* command = doc["command"] | "?";
-            const char* status  = doc["status"]  | "?";
-            const char* message = doc["message"] | "";
+            const char* command = (*espNowDoc)["command"] | "?";
+            const char* status  = (*espNowDoc)["status"]  | "?";
+            const char* message = (*espNowDoc)["message"] | "";
             char buf[120];
             snprintf(buf, sizeof(buf), "TRANS response: cmd=%s status=%s %s", command, status, message);
             logger.log(buf, "ESP32-ESPNOW-GW-TRANS");
 
           } else {
-            // Unknown type — log raw for diagnostics
-            logger.print("TRANS unknown message type '");
-            logger.print(type);
-            logger.println("' — raw: ");
-            logger.println(espSerialMessageBuffer);
+            logger.print("TRANS unknown type: ");
+            logger.println(type);
           }
         }
       }

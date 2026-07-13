@@ -37,7 +37,16 @@
         </header>
 
         <main>
-            <div class="card" style="margin-bottom: 2rem;">
+        <div class="card" style="margin-bottom: 2rem; display: flex; align-items: center; gap: 1.5rem; padding: 1rem 1.5rem;">
+            <div id="trans-dot" style="width: 14px; height: 14px; border-radius: 50%; background: var(--text-secondary); flex-shrink: 0; transition: background 0.4s;"></div>
+            <div style="flex: 1;">
+                <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.2rem;">Transmitter Heartbeat</div>
+                <div id="trans-status" style="font-weight: 600; font-size: 0.95rem;">Waiting for data...</div>
+                <div id="trans-abs-time" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.1rem;"></div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom: 2rem;">
                 <div class="collapsible-header" id="about-header">
                     <h2 style="font-size: 1.25rem;">System Information</h2>
                     <svg class="chevron" id="about-chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
@@ -56,6 +65,10 @@
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div id="send-status" style="font-size: 0.875rem;"></div>
                         <div style="display: flex; gap: 0.5rem;">
+                            <button id="btn-ping" title="Send ping command to transmitter" style="background: rgba(16,185,129,0.15); border: 1px solid var(--success); color: var(--success);">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                                Ping
+                            </button>
                             <button id="btn-clear" style="background: rgba(255,255,255,0.1); border: 1px solid var(--border-color);">
                                 Clear
                             </button>
@@ -104,8 +117,12 @@
         const aboutChevron = document.getElementById('about-chevron');
         const btnSend = document.getElementById('btn-send');
         const btnClear = document.getElementById('btn-clear');
+        const btnPing = document.getElementById('btn-ping');
         const txMessage = document.getElementById('tx-message');
         const sendStatus = document.getElementById('send-status');
+        const transDot = document.getElementById('trans-dot');
+        const transStatus = document.getElementById('trans-status');
+        const transAbsTime = document.getElementById('trans-abs-time');
 
         aboutHeader.addEventListener('click', () => {
             aboutContent.classList.toggle('expanded');
@@ -115,6 +132,33 @@
         btnClear.addEventListener('click', () => {
             txMessage.value = '';
             sendStatus.textContent = '';
+        });
+
+        btnPing.addEventListener('click', async () => {
+            btnPing.disabled = true;
+            sendStatus.textContent = 'Pinging transmitter...';
+            sendStatus.style.color = 'var(--text-secondary)';
+
+            try {
+                const response = await fetch('/api/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: '{"command":"ping"}'
+                });
+
+                if (!response.ok) throw new Error('Failed to send');
+
+                sendStatus.textContent = '✓ Ping sent — check logs for response';
+                sendStatus.style.color = 'var(--success)';
+                setTimeout(() => sendStatus.textContent = '', 4000);
+                // Refresh logs after a moment so the response appears
+                setTimeout(fetchLogs, 1500);
+            } catch (error) {
+                sendStatus.textContent = '✗ Ping error: ' + error.message;
+                sendStatus.style.color = 'var(--error)';
+            } finally {
+                btnPing.disabled = false;
+            }
         });
 
         btnSend.addEventListener('click', async () => {
@@ -232,13 +276,69 @@
             });
         });
 
+        // ---- Transmitter status ----
+        async function fetchTransmitterStatus() {
+            try {
+                const response = await fetch('/api/status');
+                if (!response.ok) throw new Error('Failed to fetch status');
+                const data = await response.json();
+                renderTransmitterStatus(data);
+            } catch (error) {
+                transDot.style.background = 'var(--error)';
+                transStatus.textContent = 'Error fetching status';
+                transAbsTime.textContent = '';
+            }
+        }
+
+        function renderTransmitterStatus(data) {
+            const age = data.transmitter_heartbeat_age_s;
+            const absIso = data.transmitter_last_heartbeat_iso || null;
+
+            if (age === -1 || age === undefined) {
+                transDot.style.background = 'var(--text-secondary)';
+                transStatus.textContent = 'No heartbeat received yet';
+                transAbsTime.textContent = '';
+                return;
+            }
+
+            // Colour coding: <120s green, <300s amber, older red
+            if (age < 120) {
+                transDot.style.background = 'var(--success)';
+            } else if (age < 300) {
+                transDot.style.background = 'var(--warning)';
+            } else {
+                transDot.style.background = 'var(--error)';
+            }
+
+            // Relative label
+            let rel;
+            if (age < 60) {
+                rel = age + ' seconds ago';
+            } else if (age < 3600) {
+                rel = Math.floor(age / 60) + ' minutes ' + (age % 60) + ' seconds ago';
+            } else {
+                rel = Math.floor(age / 3600) + ' hours ago';
+            }
+            transStatus.textContent = 'Last heartbeat: ' + rel;
+
+            // Absolute time
+            if (absIso) {
+                const d = new Date(absIso);
+                transAbsTime.textContent = d.toLocaleString(undefined, { timeZoneName: 'short' });
+            } else {
+                transAbsTime.textContent = '(absolute time unavailable — NTP not synced)';
+            }
+        }
+
         // Initial load
         fetchInfo();
         fetchAbout();
         fetchLogs();
+        fetchTransmitterStatus();
 
-        // Optional: Periodic refresh
-        setInterval(fetchInfo, 30000); // Update info/uptime every 30s
+        // Periodic refresh
+        setInterval(fetchInfo, 30000);           // device info every 30s
+        setInterval(fetchTransmitterStatus, 10000); // transmitter heartbeat every 10s
     </script>
 </body>
 </html>

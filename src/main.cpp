@@ -5,6 +5,7 @@
 #include "web.h"
 #include "config.h"
 #include <LittleFS.h>
+#include <ArduinoJson.h>
 
 /*
  * OpenTelemetry Logging Example:
@@ -49,6 +50,9 @@ TickTwo timerHeartbeat(heartbeatHandler, HEART_BEAT_S * 1000);
 HardwareSerial espNowSerial(1);
 char espSerialMessageBuffer[SERIAL_BUFFER_SIZE];
 int espSerialMessageBufferIndex = 0;
+
+// Timestamp of the last heartbeat received from the transmitter (0 = never received)
+unsigned long lastTransmitterHeartbeatMs = 0;
 
 
 void onMqttMessage(char* topic, byte* payload, unsigned int length);
@@ -139,20 +143,76 @@ void setupSerialEspNow() {
 }
 
 
+// Returns the number of milliseconds since the last transmitter heartbeat was received.
+// Returns -1 if no heartbeat has been received yet.
+long getSecondsSinceLastHeartbeat() {
+  if (lastTransmitterHeartbeatMs == 0) return -1;
+  return (long)((millis() - lastTransmitterHeartbeatMs) / 1000);
+}
+
 void handleSerialEspNow() {
   if (espNowSerial.available()) {
     char incomingByte = espNowSerial.read();
-    if (incomingByte == '\n' || espSerialMessageBufferIndex >= SERIAL_BUFFER_SIZE) {
+    if (incomingByte == '\n' || espSerialMessageBufferIndex >= SERIAL_BUFFER_SIZE - 1) {
       espSerialMessageBuffer[espSerialMessageBufferIndex] = '\0';
-      // if message starts with "DATA:" publish to mqtt
-      if (strncmp(espSerialMessageBuffer, "DATA:", 5) == 0) {
-        mqttSend(espSerialMessageBuffer+5);
-        logger.print("Message from TRANS passed to MQTT: ");
-        logger.println(espSerialMessageBuffer);
-      } else {
-        // anything else is considered as log message from transmitter
-        logger.log(espSerialMessageBuffer, "ESP32-ESPNOW-GW-TRANS");
+
+      // Strip trailing \r and \n characters
+      int len = espSerialMessageBufferIndex;
+      while (len > 0 && (espSerialMessageBuffer[len - 1] == '\r' || espSerialMessageBuffer[len - 1] == '\n')) {
+        espSerialMessageBuffer[len - 1] = '\0';
+        len--;
       }
+
+      if (len > 0) {
+        // Parse incoming line as JSON
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, espSerialMessageBuffer);
+        if (err) {
+          logger.print("TRANS serial parse error: ");
+          logger.println(err.c_str());
+          logger.println(espSerialMessageBuffer);
+        } else {
+          const char* type = doc["type"] | "";
+
+          if (strcmp(type, "data") == 0) {
+            // Forward only the inner message payload to MQTT (backward-compatible)
+            String payload;
+            serializeJson(doc["message"], payload);
+            mqttSend(const_cast<char*>(payload.c_str()));
+            logger.print("TRANS data from ");
+            logger.print(doc["mac"] | "?");
+            logger.print(" passed to MQTT: ");
+            logger.println(payload.c_str());
+
+          } else if (strcmp(type, "log") == 0) {
+            // Integrate transmitter logs into the gateway logger
+            const char* from    = doc["from"]    | "ESP32-ESPNOW-GW-TRANS";
+            const char* message = doc["message"] | "";
+            logger.log(message, from);
+
+          } else if (strcmp(type, "heartbeat") == 0) {
+            // Update the alive-timestamp; do not log or forward
+            lastTransmitterHeartbeatMs = millis();
+
+          } else if (strcmp(type, "response") == 0) {
+            // Log command responses locally only
+            const char* command = doc["command"] | "?";
+            const char* status  = doc["status"]  | "?";
+            const char* message = doc["message"] | "";
+            char buf[120];
+            snprintf(buf, sizeof(buf), "TRANS response: cmd=%s status=%s %s", command, status, message);
+            logger.log(buf, "ESP32-ESPNOW-GW-TRANS");
+
+          } else {
+            // Unknown type — log raw for diagnostics
+            logger.print("TRANS unknown message type '");
+            logger.print(type);
+            logger.println("' — raw: ");
+            logger.println(espSerialMessageBuffer);
+          }
+        }
+      }
+
       espSerialMessageBufferIndex = 0;
     } else {
       espSerialMessageBuffer[espSerialMessageBufferIndex] = incomingByte;

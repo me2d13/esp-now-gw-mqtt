@@ -35,11 +35,22 @@ LogEntry Logger::log(const std::string &message, const std::string &job) {
 
     unsigned long currentMillis = millis();
 
+    // Clean control characters from the message
+    std::string cleanedMessage;
+    cleanedMessage.reserve(message.size());
+    for (char c : message) {
+        if ((unsigned char)c >= 32 && c != 127) {
+            cleanedMessage += c;
+        } else if (c == '\t') {
+            cleanedMessage += "    "; // Replace tab with spaces
+        }
+    }
+
     // Check if NTP time is available
     struct tm timeinfo = {};
     LogEntry entry = (USE_NTP && getLocalTime(&timeinfo))
-                         ? LogEntry(m_logCounter, currentMillis, mktime(&timeinfo), message, job) // NTP time available
-                         : LogEntry(m_logCounter, currentMillis, message, job); // No NTP time
+                         ? LogEntry(m_logCounter, currentMillis, mktime(&timeinfo), cleanedMessage, job) // NTP time available
+                         : LogEntry(m_logCounter, currentMillis, cleanedMessage, job); // No NTP time
 
     m_logs.push_back(entry);
 #ifdef LOG_TO_SERIAL
@@ -78,19 +89,23 @@ size_t Logger::size() const
 
 void Logger::print(const std::string &message)
 {
-    // Add message to buffer
+    // Add message to buffer with bounds check
     for (char c : message)
     {
-        m_lineBuffer[m_lineBufferIndex++] = c;
+        if (m_lineBufferIndex < (int)sizeof(m_lineBuffer) - 1) {
+            m_lineBuffer[m_lineBufferIndex++] = c;
+        }
     }
 }
 
 void Logger::println()
 {
-    // Add newline to buffer
-    m_lineBuffer[m_lineBufferIndex++] = '\n';
-    // Log buffer
-    log(std::string(m_lineBuffer, m_lineBufferIndex));
+    // Log buffer (without raw \n)
+    if (m_lineBufferIndex > 0) {
+        log(std::string(m_lineBuffer, m_lineBufferIndex));
+    } else {
+        log("");
+    }
     // Clear buffer
     m_lineBufferIndex = 0;
 }

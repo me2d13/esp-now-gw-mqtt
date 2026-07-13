@@ -14,6 +14,37 @@ This is one part of home automation project which can control relay(s) over
 * esp-now-relay - controls relay to open gate or do another action
 * esp-now-relay-remote - battery powered ESP32-C6 device to control relay e.g. from car
 
+## Flashing / Uploading
+
+Two environments are defined in `platformio.ini`:
+* `upesy_wroom` — USB serial (default, port `COM6`)
+* `ota` — Over-The-Air (device IP `192.168.40.50`)
+
+### Firmware
+
+```bash
+# Serial
+pio run -t upload -e upesy_wroom
+
+# OTA
+pio run -t upload -e ota
+```
+
+### Filesystem (LittleFS — web UI files in `data/`)
+
+Upload the filesystem separately whenever you change files in the `data/` directory.
+The `upload` target only flashes the firmware and does **not** touch the filesystem partition.
+
+```bash
+# Serial
+pio run -t uploadfs -e upesy_wroom
+
+# OTA
+pio run -t uploadfs -e ota
+```
+
+---
+
 ## Example mqtt messages
 
 Following is shell script with typical messages used for testing these components

@@ -47,6 +47,34 @@ void setupWebServer() {
     request->send(200, "application/json", response);
   });
 
+  // API: Transmitter status (heartbeat age)
+  server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
+    JsonDocument doc;
+    long age = getSecondsSinceLastHeartbeat();
+    doc["transmitter_heartbeat_age_s"] = age; // -1 means never received
+    
+    // Also expose the absolute unix timestamp of the last heartbeat
+    if (age >= 0) {
+      struct tm timeinfo = {};
+      if (getLocalTime(&timeinfo)) {
+        char iso[25];
+        strftime(iso, sizeof(iso), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+        // The NTP time at the moment of the last heartbeat (approximated)
+        time_t now = mktime(&timeinfo);
+        time_t hbTime = now - (time_t)age;
+        struct tm hbTm;
+        gmtime_r(&hbTime, &hbTm);
+        char hbIso[25];
+        strftime(hbIso, sizeof(hbIso), "%Y-%m-%dT%H:%M:%SZ", &hbTm);
+        doc["transmitter_last_heartbeat_iso"] = hbIso;
+      }
+    }
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
   // API: Send message to Serial
   server.on("/api/send", HTTP_POST, [](AsyncWebServerRequest * request) {
       request->send(200, "application/json", "{\"status\":\"ok\"}");
